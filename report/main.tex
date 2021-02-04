@@ -1,0 +1,184 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage[plain,noend,ruled]{algorithm2e}
+
+\newcommand{\bb}{\mathbf{b}}
+\newcommand{\ba}{\mathbf{a}}
+\newcommand{\bw}{\mathbf{w}}
+
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\usepackage{graphicx}
+\graphicspath{ {../images/} }
+
+
+\title{Grid-free longitudinal SVT}
+\author{ }
+\date{January 2021}
+
+\begin{document}
+
+\maketitle
+
+\section{Motivation}
+
+Let's start of with the algorithm from the paper. I'm using exactly the same notation: $W$ is the low-rank matrix to estimate, $S_d$ is thresholded SVD, $B$ is a $K \times T$ orthogonal matrix of evaluated $K$ basis functions, $\Omega$ are observed indices (assuming some grid). In the paper we have:
+
+\begin{algorithm}\label{algo}
+\caption{\textsc{Soft-Longitudinal-Impute}\label{alg:soft-impute}}
+\begin{enumerate}
+\item Initialize $W^{old}$ with zeros
+\item Do for $\lambda_1 > \lambda_2 > ... > \lambda_k$:
+\begin{enumerate}
+\item Repeat:
+\begin{enumerate}
+\item Compute $W^{new} \leftarrow S_{\lambda_i}( (P_\Omega(Y) + P_\Omega^\perp(W^{old}B'))B )$
+\item If $\frac{\|W^{new} - W^{old}\|_F^2}{\|W^{old}\|_F^2} < \varepsilon$ exit
+\item Assign $W^{old} \leftarrow W^{new}$
+\end{enumerate}
+\item Assign $\hat{W}_{\lambda_i} \leftarrow W^{new}$
+\end{enumerate}
+\item Output $\hat{W}_{\lambda_1}, \hat{W}_{\lambda_2}, ... , \hat{W}_{\lambda_k}$
+\end{enumerate}
+\end{algorithm}
+
+Only Step 2(a)(i) of Algorithm \ref{algo} depends on the grid (multiplication $B$, where $B$ are basis functinos evaluated on the grid; also $\Omega$ is on some grid). However, we can rewrite the expression in $S_{\lambda_i}$ as:
+\begin{align}
+(P_\Omega(Y) + P_\Omega^\perp(W^{old}B'))B &= (P_\Omega(Y) - P_\Omega(W^{old}B') + W^{old}B')B\nonumber\\
+&= (P_\Omega(Y - W^{old}B'))B + W^{old}\label{eq:rearrangement}
+\end{align}
+
+To compute $W^{old}B'$ on $\Omega$ we only need $W^{old}$ and evaluation of the basis on $\Omega$. For computing $(P_\Omega(Y - W^{old}B'))B$ we also only need $B$ evaluated on $\Omega$. We can go with the number of grid points to infinity and get a continuous solution, i.e. evaluate the basis only on timepoints that we care about for each observation.
+
+When $T \rightarrow \infty$ (while with the fixed and small number of observations) the product $(P_\Omega(Y - W^{old}B'))B$ converges to zero and we need to "artificially" introduce support of measure $>0$ hence I added the "learning rate" argument. Note that this problem actually comes up in our current grid-based version too, i.e. our algorithm implicitly depends on the number of grid points.
+
+% Let $b_1, b_2, ..., b_k$ be $[0,1] \rightarrow \mathds{R}$ functions, pairwise orthogonal in $L_2([0,1])$ with norms $1$. Let $\bb(x) = [b_1(x),b_2(x),...,b_k(x)]'$.
+
+% Suppose we observe $n$ subjects. For simplicity, we assume that for each subject $1 \leq i \leq n$ we observe $m$ values at $\tau_{i,j} \in (0,1)$, where $1 \leq j \leq m$.
+
+% We search for a $p \times k$ matrix $C$ and $p$-vectors $a_i$ optimizing
+% \begin{align}
+%  \argmin_{\{\ba_i,C\}}\sum_{i=1}^N \sum_{j=1}^{n_i}\left|y_{i,j} - \ba_i' C \bb(\tau_{i,j}))\right|^2
+% \end{align}
+
+\section{Optimization}
+Our objective is to track observed points while restricing the rank of $W$. We define the tracking loss as
+\begin{align*}
+ f(W) = \sum_{i=1}^N \sum_{j=1}^{n_i}\left|y_{i,j} - W_i' \bb(\tau_{i,j}))\right|^2, %+ \lambda\|W\|_*
+\end{align*}
+where $\tau_{i,j}$ are timpoints and $y_{i,j}$ are observations. We optimize
+\begin{align}
+\argmin_{W}f(W) + \lambda\|W\|_*,\label{eq:objective}
+\end{align}
+for some $\lambda > 0$. To solve \eqref{eq:objective} we use gradient descent and SVT. We define
+\begin{align*}
+ G_i = \frac{\partial}{\partial W_i} f(W) =-2\sum_{j=1}^{n_i} (y_{i,j} - W_i' \bb(\tau_{i,j}))\bb'(\tau_{i,j})
+\end{align*}
+and the gradient of $f$ takes form
+\begin{align*}
+ \nabla_W f(W) &= [G_1', G_2', ..., G_N']'.
+\end{align*}
+Note that $\nabla_W f(W)$ is an equivalent of $(P_\Omega(Y - W^{old}B'))B$ in \eqref{eq:rearrangement}. The grid-free version of Algorithm \ref{alg:soft-impute} is therefore:
+\begin{algorithm}\label{algo}
+\caption{\textsc{Grid-free soft-Longitudinal-Impute}}
+\begin{enumerate}
+\item Initialize $W^{old}$ with zeros
+\item Do for $\lambda_1 > \lambda_2 > ... > \lambda_k$:
+\begin{enumerate}
+\item Repeat:
+\begin{enumerate}
+\item Compute $W^{new} := S_\lambda(W^{old} - \alpha \nabla_W f(W^{old}))$
+\item If $\frac{\|W^{new} - W^{old}\|_F^2}{\|W^{old}\|_F^2} < \varepsilon$ exit
+\item Assign $W^{old} \leftarrow W^{new}$
+\end{enumerate}
+\item Assign $\hat{W}_{\lambda_i} \leftarrow W^{new}$
+\end{enumerate}
+\item Output $\hat{W}_{\lambda_1}, \hat{W}_{\lambda_2}, ... , \hat{W}_{\lambda_k}$
+\end{enumerate}
+\end{algorithm}
+
+\section{Simulation}
+
+We simulate $m$ spline coeffcients for each of $n$ subjects as an $n\times m$ matrix of rank $p$. To that end we generate an $n\times m$ matrix of i.i.d. gaussian variables and truncate it's rank to $p$ using the first $p$ components from the Singluar Value Decomposition. We sample $n_i$ points for each subject $i$ by randomly sampling $n_i$ timepoints on spline's support $[0,1]$ and adding observation noise, a gaussian variable with mean $0$ and standard deviation $\sigma$. We set $n=200$, $m=7$, $p=5$, $n_i = 4$ and $\sigma = 0.2$.
+
+We evaluate performance of algorithms by comparing their NMSE between predicted and true curve, defined as
+\[
+NMSE = \frac{\sum_i^n \int_0^1 \|y_i(t) - \hat{y}_i(t)\|^2 dt }{ \sum_i^n \int_0^1 \|y_i(t)\|^2 dt},
+\]
+where $y_i$ is a true curve and $\hat{y}_i$ is a predicted curve for subject $i \in \{1,2,...,n\}$.
+
+We repeat the experiment $100$ times and report NMSE of predicted curves for three methods: grid-free, grid-based (our old implementation), and fpca (using https://cran.r-project.org/web/packages/fdapace/index.html).
+
+For grid-free and grid-based methods we cross-validate with $\lambda \in \{0.5,1,1.5,...,5\}$, fitting the model on $90\%$ of observations and measuring it's prediction error (squared residuals) on remaining $10\%$ datapoints. We then build the final model using the best~$\lambda$.
+
+\paragraph{Results} We've observed similar performance accross all three methods (See Figure \ref{fig:boxplots}). While in this particular setting of simulation parameters, method X outperformed Y and Z, in other settings other methods worked better. We present example curves in Figure \ref{fig:curves} and example predictions in Figure \ref{fig:predictions}.
+
+\section{Data study: Brain}
+
+For simplicity we take 9 out of 1900 variables: "bmi", "GMV\_TIV\_out", "GDSTot", "GMV", "DFCorr", "AFIBRILL", "DISN", "DEL", and "NITE". (note: these variables are qutie random -- we can chose meaningful ones with David's team). We run CV to chose best $\lambda$ in terms of variance explained on the validation set. Next we train the model with the best $\lambda$ on all observations from ~1250 subjects. We present curves fitted for subject \#2 (Figure \ref{fig:predictions-brain-subj2}), \#4 (Figure \ref{fig:predictions-brain-subj4}), and \#6 (Figure \ref{fig:predictions-brain-subj6}).
+
+Observations/conclusions:
+\begin{itemize}
+  \item As desired, even a couple observations on some of the curves can give us expected trends for other curves (e.g. BMI for the subject \#2 in Figure \ref{fig:predictions-brain-subj2}).
+  \item Most variables have most obseraviotns in the middle of the timescale resulting in a U-shaped principal component.
+  \item There are not too many observations at extremes of the age scale, so confidence there is low both for the mean and the principal curves.
+  \item For some variables absolute age might matter less than relative time between observations (see DFCorr in Figure \ref{fig:predictions-brain-subj4} -- there is a clear trend but against the mean curve).
+\item Subject \#6 (Figure \ref{fig:predictions-brain-subj6}) has more linear trands (in GMV and DFCorr) than our model can actually handle. It might indicate that:
+  
+  \begin{itemize}
+    \item We might do well with simple intercept and linear functions as the basis.
+    \item and if that's the case, then a plain linear model may fit this problem better. Maybe some sort of repeated measurement factor modelo r LASSO with repeated observations?
+  \end{itemize}
+\end{itemize}
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=0.49\textwidth]{simulation-performance.pdf}
+    \includegraphics[width=0.49\textwidth]{simulation-time.pdf}
+  \end{center}
+  \caption{Left: Boxplots of NMSE for three methods, Right: Boxplots of execution time in seconds.  \label{fig:boxplots}}
+\end{figure}
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=0.49\textwidth]{simulated-curves.pdf}
+    \includegraphics[width=0.49\textwidth]{simulated-1curve.pdf}
+  \end{center}
+  \caption{Left: 10 example ``ground truth'' curves from the simulation (not observed), Right: a single true curve and observed points.\label{fig:curves}}
+\end{figure}
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=0.49\textwidth]{subj-1.pdf}
+    \includegraphics[width=0.49\textwidth]{subj-3.pdf}\\
+    \includegraphics[width=0.49\textwidth]{subj-4.pdf}
+    \includegraphics[width=0.49\textwidth]{subj-10.pdf}
+  \end{center}
+  \caption{\textbf{Simulation.} 4 panels showing 4 example curves and their predictions from 3 models.\label{fig:predictions}}
+\end{figure}
+
+ \begin{figure}
+  \begin{center}
+    \includegraphics[width=\textwidth]{brain-subj-2.pdf}
+  \end{center}
+  \caption{\textbf{Brain study, subjcet 2}. 9 panels showing 9 mean curves (black) and predicted curves (green) for a single subject. Dots are the true observations. \label{fig:predictions-brain-subj2}}
+\end{figure}
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=\textwidth]{brain-subj-4.pdf}
+  \end{center}
+  \caption{\textbf{Brain study, subjcet 4}. 9 panels showing 9 mean curves (black) and predicted curves (green) for a single subject. Dots are the true observations. \label{fig:predictions-brain-subj4}}
+\end{figure}
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=\textwidth]{brain-subj-6.pdf}
+  \end{center}
+  \caption{\textbf{Brain study, subjcet 6}. 9 panels showing 9 mean curves (black) and predicted curves (green) for a single subject. Dots are the true observations. \label{fig:predictions-brain-subj6}}
+\end{figure}
+
+
+\end{document}
