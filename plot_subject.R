@@ -36,8 +36,18 @@ dev.off()
 k <- which( value.vars == 'GMV_TIV_out' )
 GMV_beta <- model$W[, c( 2*k-1, 2*k) ]
 
+GMV_mat <- model$functions$GMV_TIV_out
+gmv_beta <- matrix( NA, nrow = nrow( GMV_mat), ncol = 3 )
 
+for ( i in 1:nrow( GMV_mat) ){
+  print( i )
+  lm_gmv <- lm( GMV_mat[i,] ~ model$grid )
+  gmv_beta [i, ] <- summary( lm_gmv)$coefficient[2, c( 1,2,4) ]
+}
 
+pdf( 'GMV_traj.pdf' )
+plot( density( gmv_beta[,1]), lwd = 2, main = NULL)
+dev.off()
 
 plot.subject(model,100, value.vars = prot.vars)
 plot.subject(model,3)
